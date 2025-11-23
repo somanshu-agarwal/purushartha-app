@@ -1,13 +1,25 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, FlatList, StyleSheet, ScrollView } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, TouchableOpacity, FlatList, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { usePersistedState } from '../hooks/usePersistedState';
+
+type MealPlan = {
+  breakfast: string | null;
+  lunch: string | null;
+  dinner: string | null;
+  lastUpdated: string;
+};
 
 export default function MealPlanner() {
-  const [selectedBreakfast, setSelectedBreakfast] = useState<string | null>(null);
-  const [selectedLunch, setSelectedLunch] = useState<string | null>(null);
-  const [selectedDinner, setSelectedDinner] = useState<string | null>(null);
+  const [mealPlan, setMealPlan, mealLoading] = usePersistedState<MealPlan>('@mealPlan', {
+    breakfast: null,
+    lunch: null,
+    dinner: null,
+    lastUpdated: new Date().toISOString(),
+  });
+  
+  const [isPlanning, setIsPlanning] = useState(false);
   const [activeTab, setActiveTab] = useState<'breakfast' | 'lunch' | 'dinner'>('breakfast');
 
-  // Your meal lists
   const breakfastItems = [
     'Almonds with Bananas & Hot Milk',
     'Moong Dal Chilla with Curd',
@@ -148,14 +160,22 @@ export default function MealPlanner() {
     return suggestions;
   };
 
-  const pickRandomMeals = () => {
+  const pickRandomMeals = async () => {
+    setIsPlanning(true);
+    // Simulate some processing time for better UX
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
     const randomBreakfast = breakfastItems[Math.floor(Math.random() * breakfastItems.length)];
     const randomLunch = lunchItems[Math.floor(Math.random() * lunchItems.length)];
     const randomDinner = dinnerItems[Math.floor(Math.random() * dinnerItems.length)];
     
-    setSelectedBreakfast(randomBreakfast);
-    setSelectedLunch(randomLunch);
-    setSelectedDinner(randomDinner);
+    setMealPlan({
+      breakfast: randomBreakfast,
+      lunch: randomLunch,
+      dinner: randomDinner,
+      lastUpdated: new Date().toISOString(),
+    });
+    setIsPlanning(false);
   };
 
   const getCurrentItems = () => {
@@ -168,51 +188,85 @@ export default function MealPlanner() {
   };
 
   const getSelectedMeal = () => {
-    switch (activeTab) {
-      case 'breakfast': return selectedBreakfast;
-      case 'lunch': return selectedLunch;
-      case 'dinner': return selectedDinner;
-      default: return null;
-    }
+    return mealPlan[activeTab];
   };
 
   const getCurrentSuggestions = () => {
     return getMealSuggestions(getSelectedMeal());
   };
 
+  // Proactive evening prep reminders
+  const eveningPrepReminders = useMemo(() => {
+    const reminders = [];
+    if (mealPlan.breakfast?.includes('Almond')) reminders.push('🌰 Soak almonds for tomorrow');
+    if (mealPlan.breakfast?.includes('Sprout')) reminders.push('🌱 Prepare sprouts for tomorrow');
+    if (mealPlan.lunch?.includes('Rajma') || mealPlan.dinner?.includes('Rajma')) reminders.push('🫘 Soak rajma overnight');
+    if (mealPlan.lunch?.includes('Chole') || mealPlan.dinner?.includes('Chole')) reminders.push('🫘 Soak chole overnight');
+    return reminders;
+  }, [mealPlan]);
+
+  if (mealLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading your meal plan...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Purushartha - Life Manager</Text>
       
-      <TouchableOpacity style={styles.button} onPress={pickRandomMeals}>
-        <Text style={styles.buttonText}>Plan All Meals for Tomorrow</Text>
+      <TouchableOpacity 
+        style={[styles.button, isPlanning && styles.buttonDisabled]} 
+        onPress={pickRandomMeals}
+        disabled={isPlanning}
+      >
+        {isPlanning ? (
+          <ActivityIndicator color="white" />
+        ) : (
+          <Text style={styles.buttonText}>Plan All Meals for Tomorrow</Text>
+        )}
       </TouchableOpacity>
+
+      {/* Evening Prep Reminders */}
+      {eveningPrepReminders.length > 0 && (
+        <View style={styles.reminderContainer}>
+          <Text style={styles.reminderTitle}>🌙 Evening Preparation</Text>
+          {eveningPrepReminders.map((reminder, index) => (
+            <View key={index} style={styles.reminderItem}>
+              <Text style={styles.reminderText}>{reminder}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Selected Meals Display */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.mealSummary}>
-        {selectedBreakfast && (
+        {mealPlan.breakfast && (
           <View style={styles.mealCard}>
             <Text style={styles.mealCardTitle}>Breakfast</Text>
-            <Text style={styles.mealCardText}>{selectedBreakfast}</Text>
-            {getMealSuggestions(selectedBreakfast).slice(0, 1).map((suggestion, index) => (
+            <Text style={styles.mealCardText}>{mealPlan.breakfast}</Text>
+            {getMealSuggestions(mealPlan.breakfast).slice(0, 1).map((suggestion, index) => (
               <Text key={index} style={styles.mealCardSuggestion}>💡 {suggestion}</Text>
             ))}
           </View>
         )}
-        {selectedLunch && (
+        {mealPlan.lunch && (
           <View style={styles.mealCard}>
             <Text style={styles.mealCardTitle}>Lunch</Text>
-            <Text style={styles.mealCardText}>{selectedLunch}</Text>
-            {getMealSuggestions(selectedLunch).slice(0, 1).map((suggestion, index) => (
+            <Text style={styles.mealCardText}>{mealPlan.lunch}</Text>
+            {getMealSuggestions(mealPlan.lunch).slice(0, 1).map((suggestion, index) => (
               <Text key={index} style={styles.mealCardSuggestion}>💡 {suggestion}</Text>
             ))}
           </View>
         )}
-        {selectedDinner && (
+        {mealPlan.dinner && (
           <View style={styles.mealCard}>
             <Text style={styles.mealCardTitle}>Dinner</Text>
-            <Text style={styles.mealCardText}>{selectedDinner}</Text>
-            {getMealSuggestions(selectedDinner).slice(0, 1).map((suggestion, index) => (
+            <Text style={styles.mealCardText}>{mealPlan.dinner}</Text>
+            {getMealSuggestions(mealPlan.dinner).slice(0, 1).map((suggestion, index) => (
               <Text key={index} style={styles.mealCardSuggestion}>💡 {suggestion}</Text>
             ))}
           </View>
@@ -267,9 +321,18 @@ export default function MealPlanner() {
         <FlatList
           data={getCurrentItems()}
           renderItem={({ item }) => (
-            <View style={styles.mealItem}>
+            <TouchableOpacity 
+              style={[
+                styles.mealItem,
+                getSelectedMeal() === item && styles.selectedMealItem
+              ]}
+              onPress={() => setMealPlan(prev => ({ ...prev, [activeTab]: item }))}
+            >
               <Text style={styles.mealItemText}>{item}</Text>
-            </View>
+              {getSelectedMeal() === item && (
+                <Text style={styles.selectedIndicator}>✓</Text>
+              )}
+            </TouchableOpacity>
           )}
           keyExtractor={(item) => item}
           showsVerticalScrollIndicator={false}
@@ -285,6 +348,17 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     backgroundColor: '#f8f9fa',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#666',
   },
   title: {
     fontSize: 24,
@@ -305,11 +379,37 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
+    minHeight: 50,
+    justifyContent: 'center',
+  },
+  buttonDisabled: {
+    backgroundColor: '#ccc',
   },
   buttonText: {
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  reminderContainer: {
+    backgroundColor: '#fff3cd',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderLeftWidth: 4,
+    borderLeftColor: '#ffc107',
+  },
+  reminderTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#856404',
+    marginBottom: 8,
+  },
+  reminderItem: {
+    marginBottom: 4,
+  },
+  reminderText: {
+    fontSize: 14,
+    color: '#856404',
   },
   mealSummary: {
     marginBottom: 20,
@@ -358,9 +458,11 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
     borderRadius: 8,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   activeTab: {
     backgroundColor: '#007AFF',
@@ -443,10 +545,25 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  selectedMealItem: {
+    backgroundColor: '#f0f7ff',
+    borderLeftWidth: 4,
+    borderLeftColor: '#007AFF',
   },
   mealItemText: {
     fontSize: 14,
     color: '#333',
     lineHeight: 20,
+    flex: 1,
+  },
+  selectedIndicator: {
+    color: '#007AFF',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

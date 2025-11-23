@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { usePersistedState } from '../hooks/usePersistedState';
 
 type Chore = {
   id: string;
@@ -11,14 +11,97 @@ type Chore = {
   estimatedTime: string;
 };
 
+// Helper function to calculate next due date
+const getNextDueDate = (frequency: 'daily' | 'weekly' | 'bi-weekly'): string => {
+  const today = new Date();
+  const nextDue = new Date(today);
+  
+  switch (frequency) {
+    case 'daily':
+      nextDue.setDate(nextDue.getDate() + 1);
+      break;
+    case 'weekly':
+      nextDue.setDate(nextDue.getDate() + 7);
+      break;
+    case 'bi-weekly':
+      nextDue.setDate(nextDue.getDate() + 14);
+      break;
+  }
+  
+  return nextDue.toISOString().split('T')[0];
+};
+
+const ChoreCard = ({ 
+  chore, 
+  onMarkDone, 
+  status 
+}: { 
+  chore: Chore; 
+  onMarkDone: (id: string) => void; 
+  status: string;
+}) => {
+  const getDaysUntilDue = (dueDate: string): number => {
+    const today = new Date();
+    const due = new Date(dueDate);
+    const diffTime = due.getTime() - today.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const daysUntilDue = getDaysUntilDue(chore.nextDue);
+  
+  const getStatusColor = (): string => {
+    switch (status) {
+      case 'overdue': return '#dc3545';
+      case 'due-soon': return '#ffc107';
+      case 'due-today': return '#fd7e14';
+      default: return '#28a745';
+    }
+  };
+
+  const getStatusText = (): string => {
+    if (daysUntilDue < 0) return `Overdue by ${Math.abs(daysUntilDue)} days`;
+    if (daysUntilDue === 0) return 'Due today';
+    if (daysUntilDue === 1) return 'Due tomorrow';
+    return `Due in ${daysUntilDue} days`;
+  };
+
+  const statusColor = getStatusColor();
+  const statusText = getStatusText();
+
+  return (
+    <View style={[styles.choreCard, { borderLeftColor: statusColor }]}>
+      <View style={styles.choreInfo}>
+        <Text style={styles.choreName}>{chore.name}</Text>
+        <View style={styles.choreMeta}>
+          <Text style={styles.choreFrequency}>🔄 {chore.frequency}</Text>
+          <Text style={styles.choreTime}>⏱️ {chore.estimatedTime}</Text>
+        </View>
+        <Text style={[styles.dueText, { color: statusColor }]}>
+          {statusText}
+        </Text>
+        {chore.lastDone && (
+          <Text style={styles.lastDone}>Last done: {new Date(chore.lastDone).toLocaleDateString()}</Text>
+        )}
+      </View>
+      
+      <TouchableOpacity 
+        style={[styles.doneButton, { backgroundColor: statusColor }]}
+        onPress={() => onMarkDone(chore.id)}
+      >
+        <Text style={styles.doneButtonText}>Mark Done</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
 export default function ChoresTracker() {
-  const [chores, setChores] = useState<Chore[]>([
+  const [chores, setChores, choresLoading] = usePersistedState<Chore[]>('@chores', [
     {
       id: '1',
       name: 'Laundry (Wash & Dry)',
       frequency: 'weekly',
       lastDone: null,
-      nextDue: '2024-01-17',
+      nextDue: getNextDueDate('weekly'),
       estimatedTime: '1.5 hours'
     },
     {
@@ -26,7 +109,7 @@ export default function ChoresTracker() {
       name: 'House Cleaning (Floor & Toilet)',
       frequency: 'weekly',
       lastDone: null,
-      nextDue: '2024-01-20',
+      nextDue: getNextDueDate('weekly'),
       estimatedTime: '1 hour'
     },
     {
@@ -34,7 +117,7 @@ export default function ChoresTracker() {
       name: 'Change Bed Sheets',
       frequency: 'bi-weekly',
       lastDone: null,
-      nextDue: '2024-01-15',
+      nextDue: getNextDueDate('bi-weekly'),
       estimatedTime: '20 mins'
     },
     {
@@ -42,7 +125,7 @@ export default function ChoresTracker() {
       name: 'Grocery Shopping',
       frequency: 'weekly',
       lastDone: null,
-      nextDue: '2024-01-21',
+      nextDue: getNextDueDate('weekly'),
       estimatedTime: '2 hours'
     },
     {
@@ -50,81 +133,49 @@ export default function ChoresTracker() {
       name: 'Kitchen Deep Clean',
       frequency: 'weekly',
       lastDone: null,
-      nextDue: '2024-01-19',
+      nextDue: getNextDueDate('weekly'),
       estimatedTime: '45 mins'
     },
   ]);
 
   const markChoreDone = (choreId: string) => {
-    const updatedChores = chores.map(chore => {
+    const updatedChores = chores.map((chore: Chore) => {
       if (chore.id === choreId) {
         const today = new Date().toISOString().split('T')[0];
-        let nextDue = new Date();
-        
-        if (chore.frequency === 'daily') {
-          nextDue.setDate(nextDue.getDate() + 1);
-        } else if (chore.frequency === 'weekly') {
-          nextDue.setDate(nextDue.getDate() + 7);
-        } else if (chore.frequency === 'bi-weekly') {
-          nextDue.setDate(nextDue.getDate() + 14);
-        }
-        
         return {
           ...chore,
           lastDone: today,
-          nextDue: nextDue.toISOString().split('T')[0]
+          nextDue: getNextDueDate(chore.frequency)
         };
       }
       return chore;
     });
     
     setChores(updatedChores);
-    saveChores(updatedChores);
   };
 
-  const getDaysUntilDue = (dueDate: string) => {
+  const getDaysUntilDue = (dueDate: string): number => {
     const today = new Date();
     const due = new Date(dueDate);
     const diffTime = due.getTime() - today.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  const getDueStatus = (daysUntilDue: number) => {
-    if (daysUntilDue < 0) return 'overdue';
-    if (daysUntilDue === 0) return 'due-today';
-    if (daysUntilDue <= 2) return 'due-soon';
-    return 'upcoming';
-  };
-
-  const saveChores = async (updatedChores: Chore[]) => {
-    try {
-      await AsyncStorage.setItem('@chores', JSON.stringify(updatedChores));
-    } catch (error) {
-      console.error('Error saving chores:', error);
-    }
-  };
-
-  const loadChores = async () => {
-    try {
-      const savedChores = await AsyncStorage.getItem('@chores');
-      if (savedChores) {
-        setChores(JSON.parse(savedChores));
-      }
-    } catch (error) {
-      console.error('Error loading chores:', error);
-    }
-  };
-
-  useEffect(() => {
-    loadChores();
-  }, []);
-
-  const overdueChores = chores.filter(chore => getDaysUntilDue(chore.nextDue) < 0);
-  const dueSoonChores = chores.filter(chore => {
+  const overdueChores = chores.filter((chore: Chore) => getDaysUntilDue(chore.nextDue) < 0);
+  const dueSoonChores = chores.filter((chore: Chore) => {
     const days = getDaysUntilDue(chore.nextDue);
     return days >= 0 && days <= 2;
   });
-  const upcomingChores = chores.filter(chore => getDaysUntilDue(chore.nextDue) > 2);
+  const upcomingChores = chores.filter((chore: Chore) => getDaysUntilDue(chore.nextDue) > 2);
+
+  if (choresLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading your chores...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -153,7 +204,7 @@ export default function ChoresTracker() {
         {overdueChores.length > 0 && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, styles.overdueTitle]}>🚨 Overdue</Text>
-            {overdueChores.map(chore => (
+            {overdueChores.map((chore: Chore) => (
               <ChoreCard 
                 key={chore.id} 
                 chore={chore} 
@@ -168,7 +219,7 @@ export default function ChoresTracker() {
         {dueSoonChores.length > 0 && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, styles.dueSoonTitle]}>📅 Due Soon</Text>
-            {dueSoonChores.map(chore => (
+            {dueSoonChores.map((chore: Chore) => (
               <ChoreCard 
                 key={chore.id} 
                 chore={chore} 
@@ -183,7 +234,7 @@ export default function ChoresTracker() {
         {upcomingChores.length > 0 && (
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, styles.upcomingTitle]}>📋 Upcoming</Text>
-            {upcomingChores.map(chore => (
+            {upcomingChores.map((chore: Chore) => (
               <ChoreCard 
                 key={chore.id} 
                 chore={chore} 
@@ -194,60 +245,32 @@ export default function ChoresTracker() {
           </View>
         )}
       </ScrollView>
+
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>
+          Tap "Mark Done" to schedule next occurrence
+        </Text>
+      </View>
     </View>
   );
 }
-
-const ChoreCard = ({ chore, onMarkDone, status }: { chore: Chore; onMarkDone: (id: string) => void; status: string }) => {
-  const daysUntilDue = Math.ceil((new Date(chore.nextDue).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-  
-  const getStatusColor = () => {
-    switch (status) {
-      case 'overdue': return '#dc3545';
-      case 'due-soon': return '#ffc107';
-      case 'due-today': return '#fd7e14';
-      default: return '#28a745';
-    }
-  };
-
-  const getStatusText = () => {
-    if (daysUntilDue < 0) return `Overdue by ${Math.abs(daysUntilDue)} days`;
-    if (daysUntilDue === 0) return 'Due today';
-    if (daysUntilDue === 1) return 'Due tomorrow';
-    return `Due in ${daysUntilDue} days`;
-  };
-
-  return (
-    <View style={[styles.choreCard, { borderLeftColor: getStatusColor() }]}>
-      <View style={styles.choreInfo}>
-        <Text style={styles.choreName}>{chore.name}</Text>
-        <View style={styles.choreMeta}>
-          <Text style={styles.choreFrequency}>🔄 {chore.frequency}</Text>
-          <Text style={styles.choreTime}>⏱️ {chore.estimatedTime}</Text>
-        </View>
-        <Text style={[styles.dueText, { color: getStatusColor() }]}>
-          {getStatusText()}
-        </Text>
-        {chore.lastDone && (
-          <Text style={styles.lastDone}>Last done: {new Date(chore.lastDone).toLocaleDateString()}</Text>
-        )}
-      </View>
-      
-      <TouchableOpacity 
-        style={[styles.doneButton, { backgroundColor: getStatusColor() }]}
-        onPress={() => onMarkDone(chore.id)}
-      >
-        <Text style={styles.doneButtonText}>Mark Done</Text>
-      </TouchableOpacity>
-    </View>
-  );
-};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
     backgroundColor: '#f8f9fa',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#666',
   },
   title: {
     fontSize: 24,
@@ -320,6 +343,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderLeftWidth: 4,
     elevation: 1,
+    minHeight: 44,
   },
   choreInfo: {
     flex: 1,
@@ -356,10 +380,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 6,
+    minHeight: 36,
+    justifyContent: 'center',
   },
   doneButtonText: {
     color: 'white',
     fontSize: 12,
     fontWeight: '500',
+  },
+  footer: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  footerText: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
   },
 });

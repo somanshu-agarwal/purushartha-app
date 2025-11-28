@@ -54,6 +54,13 @@
       "eas": {
         "projectId": "27cd3c60-6dfc-4616-adce-b71321426eb7"
       }
+    },
+    "owner": "som07",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/27cd3c60-6dfc-4616-adce-b71321426eb7"
     }
   }
 }
